@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: doodle-tools
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
