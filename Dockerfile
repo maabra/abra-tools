@@ -4,6 +4,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --include=dev
 COPY index.html vite.config.js ./
 COPY src ./src
+COPY server/utils.js ./server/utils.js
 RUN npm run build && npm prune --omit=dev
 
 FROM node:24-bookworm-slim
