@@ -80,8 +80,24 @@ self.onmessage=async({data})=>{
     if(!files.length)throw new Error('Choose files first.');
     if(files.reduce((sum,f)=>sum+f.size,0)>MAX_BYTES)throw new Error('Choose up to 300 MB of files per browser batch.');
     if(tool==='pdf') {
-      const {PDFDocument}=await import('pdf-lib');
-      if(options.mode==='merge') {
+      const {PDFDocument,degrees}=await import('pdf-lib');
+      if(options.mode==='organize') {
+        const plan=options.organizedPages;
+        if(!Array.isArray(plan)||!plan.length)throw new Error('Keep at least one page to create your PDF.');
+        if(plan.length>2000)throw new Error('Organize up to 2,000 pages per batch.');
+        const docs=new Map(),out=await PDFDocument.create();
+        for(let i=0;i<plan.length;i++){
+          const item=plan[i];
+          if(!Number.isInteger(item.file)||!files[item.file]||!Number.isInteger(item.page)||![0,90,180,270].includes(item.rotation))throw new Error('The page selection changed. Please check your pages and try again.');
+          if(!docs.has(item.file))docs.set(item.file,await PDFDocument.load(await files[item.file].arrayBuffer()));
+          const doc=docs.get(item.file);
+          if(item.page<0||item.page>=doc.getPageCount())throw new Error('A selected page no longer exists. Re-add the PDF.');
+          update(`Organizing page ${i+1} of ${plan.length}`,Math.round(i/plan.length*90));
+          const [page]=await out.copyPages(doc,[item.page]);
+          page.setRotation(degrees((page.getRotation().angle+item.rotation)%360));out.addPage(page);
+        }
+        add(new Blob([await out.save()],{type:'application/pdf'}),'organized.pdf');
+      } else if(options.mode==='merge') {
         const out=await PDFDocument.create();
         for(let i=0;i<files.length;i++) {
           update(`Reading PDF ${i+1} of ${files.length}`,Math.round(i/files.length*80));

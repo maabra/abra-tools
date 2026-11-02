@@ -12,6 +12,7 @@ import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { number, pages, twitterUrl, safeName } from './utils.js';
 import { hostingConfig, allowedRequest } from './hosting.js';
+import { videoMetadata } from './media-info.js';
 
 const app=express(), root=await fs.mkdtemp(path.join(os.tmpdir(),'doodle-tools-'));
 const hosting = hostingConfig();
@@ -41,10 +42,7 @@ async function result(job,file,name,original) {
 }
 async function info(job,input) {
  const data=JSON.parse(await run(job,probe.path,['-v','error','-show_format','-show_streams','-of','json',input],60000));
- if(!data.streams.some(s=>s.codec_type==='video')) throw new Error('This file does not contain a video stream.');
- const duration=Number(data.format.duration);
- if(!Number.isFinite(duration)||duration<=0) throw new Error('Cannot determine this video’s duration.');
- return {duration,audio:data.streams.some(s=>s.codec_type==='audio'),video:data.streams.find(s=>s.codec_type==='video')};
+ return videoMetadata(data);
 }
 async function processJob(job) {
  const o=job.options, files=job.files;
@@ -84,14 +82,28 @@ async function processJob(job) {
  } else {
   if(files.length>1) throw new Error('Choose one video at a time.');
   let input=files[0]?.path;
-  if(!input && job.tool==='gif' && o.url) {
+  if(!input && job.tool==='gif' && o.sourceId) {
+   const source=jobs.get(o.sourceId);
+   if(!source || source.tool!=='inspect' || source.status!=='done' || !source.source) throw new Error('The inspected video expired. Re-select your file or re-read the link.');
+   input=path.join(job.dir,'source.mp4');
+   await fs.copyFile(source.source,input);
+   job.originalSize=source.originalSize;
+  }
+  if(!input && ['gif','inspect'].includes(job.tool) && o.url) {
    const url=twitterUrl(o.url);job.message='Fetching public Twitter / X video…';
    input=path.join(job.dir,'source.mp4');
    const localYtdlp=await fs.access(path.resolve('.tools/yt_dlp/__main__.py')).then(()=>true,()=>false);
-   await run(job,process.env.YTDLP_BIN||(localYtdlp?'python':'yt-dlp'),[...(localYtdlp&&!process.env.YTDLP_BIN?['-m','yt_dlp']:[]),'--no-playlist','--no-warnings','--max-filesize','200M','--socket-timeout','25','--no-part','-f','best[ext=mp4]','-o',input,'--',url],120000);
+   await run(job,process.env.YTDLP_BIN||(localYtdlp?'python':'yt-dlp'),[...(localYtdlp&&!process.env.YTDLP_BIN?['-m','yt_dlp']:[]),'--ignore-config','--no-playlist','--no-warnings','--max-filesize','200M','--socket-timeout','25','--no-part','-f','best[ext=mp4]','-o',input,'--',url],120000);
   }
   if(!input) throw new Error('Choose a video, or paste a public Twitter / X post link.');
   const meta=await info(job,input), dest=path.join(job.dir,job.tool==='gif'?'animation.gif':'video.mp4');
+  if(job.tool==='inspect') {
+   // Keep a single source copy for conversion so inspection never requires a second upload/download.
+   const source=path.join(job.dir,'inspected-source');
+   await fs.rename(input,source);job.source=source;
+   job.originalSize=(await fs.stat(source)).size;job.metadata=meta;
+   return;
+  }
   if(job.tool==='video') {
    const cap=number(o.target,0.1,1000,8)*1000000;
    let totalRate=cap*8/meta.duration*0.95;
@@ -112,17 +124,18 @@ async function processJob(job) {
    }
    await result(job,dest,'smaller-video.mp4',files[0].size);
   } else {
-   const start=number(o.start,0,Math.max(0,meta.duration-0.01),0), duration=Math.min(number(o.duration,0.1,60,10),meta.duration-start);
-   let width=number(o.width,80,1280,640), fps=number(o.fps,5,30,15);
+   const start=number(o.start,0,Math.max(0,meta.duration-0.01),0), duration=Math.min(number(o.duration,0.01,60,Math.min(60,meta.duration)),meta.duration-start);
+   let width=number(o.width,1,1280,Math.min(1280,meta.width)), fps=number(o.fps,0.1,60,Math.min(30,meta.fps||15));
+   const minimumWidth=Math.min(64,width,meta.width), minimumFps=Math.min(5,fps,meta.fps||fps);
    const cap=o.limit==='true'?number(o.target,0.1,100,5)*1000000:Infinity;
    for(let attempt=0;attempt<9;attempt++) {
     job.message=`Drawing GIF frames${attempt?' · reducing size':''}`;job.progress=10+attempt*9;
     await run(job,ffmpeg,['-y','-v','error','-ss',`${start}`,'-t',`${duration}`,'-i',input,'-filter_complex',`fps=${fps},scale=w='min(${Math.round(width)},iw)':h=-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3`,'-an','-loop','0','-threads','2',dest]);
     if((await fs.stat(dest)).size<=cap) break;
-    width=Math.max(64,width*0.78);fps=Math.max(5,fps-2);
+    width=Math.max(minimumWidth,width*0.78);fps=Math.max(minimumFps,fps-2);
     if(attempt===8) throw new Error('This GIF cannot fit the limit. Try a shorter duration or a larger size limit.');
    }
-   await result(job,dest,'actual-animation.gif',files[0]?.size);
+   await result(job,dest,'actual-animation.gif',files[0]?.size||job.originalSize);
   }
  }
 }
@@ -139,12 +152,12 @@ async function drain() {
  active=false;
 }
 app.post('/api/jobs', (req,res,next)=>{if(queue.length>=8||jobs.size>=100)return res.status(429).json({error:'The queue is full. Please try again shortly.'});next();}, upload.array('files',200), async(req,res)=>{
- if(!['pdf','video','gif','images'].includes(req.body.tool)) {await Promise.all((req.files||[]).map(f=>fs.unlink(f.path)));return res.status(400).json({error:'Unknown tool.'});}
+ if(!['pdf','video','gif','images','inspect'].includes(req.body.tool)) {await Promise.all((req.files||[]).map(f=>fs.unlink(f.path)));return res.status(400).json({error:'Unknown tool.'});}
  const id=randomUUID(), dir=path.join(root,id);await fs.mkdir(dir);
  const job={id,dir,tool:req.body.tool,options:req.body,files:req.files||[],status:'queued',message:'Waiting for the workbench…',progress:0,results:[],paths:[],warnings:[],created:Date.now()};
  jobs.set(id,job);queue.push(job);res.json({id});drain();
 });
-app.get('/api/jobs/:id',(req,res)=>{const j=jobs.get(req.params.id);if(!j)return res.status(404).json({error:'Job expired. Run the tool again.'});res.json({id:j.id,status:j.status,message:j.message,progress:j.progress,results:j.results,warnings:j.warnings});});
+app.get('/api/jobs/:id',(req,res)=>{const j=jobs.get(req.params.id);if(!j)return res.status(404).json({error:'Job expired. Run the tool again.'});res.json({id:j.id,status:j.status,message:j.message,progress:j.progress,results:j.results,warnings:j.warnings,metadata:j.metadata});});
 app.delete('/api/jobs/:id',(req,res)=>{const j=jobs.get(req.params.id);if(j&&['queued','processing'].includes(j.status)){j.cancelled=true;j.status='cancelled';j.child?.kill();j.finished=Date.now();}res.json({ok:true});});
 app.get('/api/jobs/:id/files/:index',(req,res)=>{const j=jobs.get(req.params.id), i=Number(req.params.index);if(!j||j.status!=='done'||!j.results[i])return res.sendStatus(404);res.download(j.paths[i],j.results[i].name);});
 app.get('/api/jobs/:id/zip',(req,res)=>{

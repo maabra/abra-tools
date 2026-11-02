@@ -4,3 +4,5 @@ dist/
 *.log
 .npm-cache/
 .tools/
+artifacts/
+
