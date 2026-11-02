@@ -14,7 +14,7 @@ import { number, pages, twitterUrl, safeName } from './utils.js';
 import { hostingConfig, allowedRequest } from './hosting.js';
 import { videoMetadata } from './media-info.js';
 
-const app=express(), root=await fs.mkdtemp(path.join(os.tmpdir(),'doodle-tools-'));
+const app=express(), root=await fs.mkdtemp(path.join(os.tmpdir(),'abra-tools-'));
 const hosting = hostingConfig();
 const jobs=new Map(); let active=false; const queue=[];
 const upload=multer({dest:root,limits:{fileSize:1024*1024*1024,files:200,fields:20}});
@@ -162,14 +162,14 @@ app.delete('/api/jobs/:id',(req,res)=>{const j=jobs.get(req.params.id);if(j&&['q
 app.get('/api/jobs/:id/files/:index',(req,res)=>{const j=jobs.get(req.params.id), i=Number(req.params.index);if(!j||j.status!=='done'||!j.results[i])return res.sendStatus(404);res.download(j.paths[i],j.results[i].name);});
 app.get('/api/jobs/:id/zip',(req,res)=>{
  const j=jobs.get(req.params.id);if(!j||j.status!=='done')return res.sendStatus(404);
- res.attachment('doodle-tools.zip');const archive=new ZipArchive({zlib:{level:0}});archive.on('error',()=>res.destroy());res.on('close',()=>archive.abort());archive.pipe(res);
+ res.attachment('abra-tools.zip');const archive=new ZipArchive({zlib:{level:0}});archive.on('error',()=>res.destroy());res.on('close',()=>archive.abort());archive.pipe(res);
  j.results.forEach((r,i)=>archive.file(j.paths[i],{name:r.name}));archive.finalize();
 });
 app.use((err,req,res,next)=>{Promise.all((req.files||[]).map(f=>fs.unlink(f.path).catch(()=>{})));res.status(400).json({error:err instanceof multer.MulterError?'Upload limit exceeded: maximum 200 files, 1 GB per file.':err.message});});
 setInterval(async()=>{for(const [id,j] of jobs){if(j.finished&&Date.now()-j.finished>60*60*1000){jobs.delete(id);await fs.rm(j.dir,{recursive:true,force:true});await Promise.all(j.files.map(f=>fs.unlink(f.path).catch(()=>{})));}}},60000).unref();
 if(process.env.NODE_ENV==='production')app.use(express.static('dist'));
 else {const {createServer}=await import('vite');const vite=await createServer({configLoader:'native',server:{middlewareMode:true},appType:'spa'});app.use(vite.middlewares);}
-app.listen(hosting.port,hosting.host,()=>console.log(`Doodle Tools is listening on ${hosting.host}:${hosting.port}`));
+app.listen(hosting.port,hosting.host,()=>console.log(`Abra Tools is listening on ${hosting.host}:${hosting.port}`));
 
 
 
