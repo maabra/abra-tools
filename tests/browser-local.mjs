@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {promises as fs} from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import {PDFDocument} from 'pdf-lib';
 import sharp from 'sharp';
 import {unzipSync} from 'fflate';
@@ -27,6 +28,11 @@ const pdf=Buffer.from(await doc.save());
 const png=await sharp({create:{width:500,height:400,channels:4,background:'#aabbcc88'}}).png().toBuffer();
 const imageFile={name:'photo.png',mimeType:'image/png',buffer:png};
 const pdfFile={name:'sample.pdf',mimeType:'application/pdf',buffer:pdf};
+const folder=await fs.mkdtemp(path.join(os.tmpdir(),'doodle-folder-'));
+await fs.mkdir(path.join(folder,'nested'));
+await fs.writeFile(path.join(folder,'photo.png'),png);
+await fs.writeFile(path.join(folder,'nested','photo.png'),png);
+const largePng=await sharp({create:{width:3000,height:2000,channels:4,background:'#aabbcc88'}}).png().toBuffer();
 async function download(page,link){
   const pending=page.waitForEvent('download');await link.click();const d=await pending;
   const filename=await d.path();return await fs.readFile(filename);
@@ -83,6 +89,25 @@ try {
     await page.locator('input[type=file]').first().setInputFiles({name:'drawing.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="80"><rect width="100" height="80" fill="red"/></svg>')});
     await run(page);assert.equal(await page.locator('.result-row').count(),1);
     assert.equal((await sharp(await download(page,page.locator('.result-row a').first())).metadata()).width,100);
+    await open(page,'Image squish');
+    await page.locator('input[webkitdirectory]').setInputFiles(folder);
+    await run(page);assert.equal(await page.locator('.result-row').count(),2);
+    const folderZip=unzipSync(await download(page,page.getByRole('link',{name:'Download ZIP'})));
+    assert.deepEqual(Object.keys(folderZip),['1-photo.webp','2-photo.webp']);
+    await open(page,'Image squish');
+    await page.locator('select').first().selectOption('avif');
+    await page.locator('input[type=file]').first().setInputFiles([
+      {name:'large.png',mimeType:'image/png',buffer:largePng},
+      {name:'another.png',mimeType:'image/png',buffer:largePng},
+    ]);
+    await page.locator('button[type=submit]').click();
+    await page.getByRole('button',{name:'Cancel',exact:true}).click();
+    assert.match(await page.locator('.alert').innerText(),/cancelled/);
+    assert.equal(await page.locator('.results').count(),0);
+    // Immediately run another job to verify a cancelled worker cannot overwrite it.
+    await page.locator('select').first().selectOption('webp');await run(page);
+    assert.equal(await page.locator('.result-row').count(),2);
+    console.log(`PASS ${width}px: folder selection, duplicate filenames, cancellation and immediate restart`);
     await open(page,'PDF playground');
     await page.getByText('Extract pages',{exact:true}).click();
     await page.locator('input[type=file]').first().setInputFiles(pdfFile);
@@ -94,4 +119,4 @@ try {
     console.log(`PASS ${width}px: SVG, invalid PDF ranges, no horizontal overflow and ZERO backend requests`);
     await page.close();
   }
-}finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));await fs.rm(folder,{recursive:true,force:true});}
