@@ -1,34 +1,35 @@
 {
-    "name": "doodle-tools",
-    "version": "1.0.0",
-    "private": true,
-    "type": "module",
-    "scripts": {
-        "dev": "node server/index.js",
-        "build": "vite build --configLoader native",
-        "start": "node server/index.js",
-        "test": "node --test",
-        "test:smoke": "node tests/smoke.mjs"
-    },
-    "dependencies": {
-        "@jsquash/avif": "^2.1.1",
-        "@lucide/vue": "^1.66.0",
-        "archiver": "^8.0.0",
-        "express": "^5.1.0",
-        "fflate": "^0.8.3",
-        "ffmpeg-static": "^5.2.0",
-        "ffprobe-static": "^3.1.0",
-        "multer": "^2.0.0",
-        "pdf-lib": "^1.17.1",
-        "sharp": "^0.35.5",
-        "vite": "^7.0.0",
-        "vue": "^3.5.0"
-    },
-    "devDependencies": {
-        "@playwright/test": "^1.64.1",
-        "@vitejs/plugin-vue": "^6.0.10"
-    },
-    "overrides": {
-        "minimatch": "^11.0.1"
-    }
+  "name": "doodle-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server/index.js",
+    "build": "vite build --configLoader native",
+    "start": "node server/index.js",
+    "test": "node --test",
+    "test:smoke": "node tests/smoke.mjs",
+    "test:browser-local": "node tests/browser-local.mjs"
+  },
+  "dependencies": {
+    "@jsquash/avif": "^2.1.1",
+    "@lucide/vue": "^1.66.0",
+    "archiver": "^8.0.0",
+    "express": "^5.1.0",
+    "fflate": "^0.8.3",
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
+    "multer": "^2.0.0",
+    "pdf-lib": "^1.17.1",
+    "sharp": "^0.35.5",
+    "vite": "^7.0.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@vitejs/plugin-vue": "^6.0.10"
+  },
+  "overrides": {
+    "minimatch": "^11.0.1"
+  }
 }

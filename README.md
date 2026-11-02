@@ -1,6 +1,6 @@
 # Doodle Tools
 
-A Vue 3 + Vite hub with a local Node processing server. Open `index.html` through the server, rather than directly from the filesystem.
+A Vue 3 + Vite hub. PDF and image tools run entirely in the browser, in a dedicated worker. Video and GIF tools use a Node processing server. Serve the app over HTTP rather than opening index.html directly.
 
 ## Run
 
@@ -29,17 +29,19 @@ The server detects this project-local installation automatically (requires `pyth
 
 ## Processing
 
-- PDF: pdf-lib copies vector pages without rendering. Merge ordered documents, extract page ranges into one PDF, or split selected pages into individual PDFs. Encrypted PDFs fail explicitly. Form fields, bookmarks, annotations and digital signatures are not guaranteed to survive page copying.
+- PDF: browser-local pdf-lib copies vector pages without rendering. Merge ordered documents, extract page ranges into one PDF, or split selected pages into individual PDFs. Encrypted PDFs fail explicitly. Form fields, bookmarks, annotations and digital signatures are not guaranteed to survive page copying.
 - Video: native FFmpeg, two-pass H.264 + AAC, with adaptive resolution and retries. Uses decimal MB and verifies actual bytes before returning a successful result. No oversized result is returned. Impossible budgets return an explanation. Smaller targets reduce quality. Audio is preserved unless muted.
 - GIF: FFmpeg palettegen/paletteuse with Lanczos scaling. Trims up to 60 seconds and progressively reduces dimensions and fps to fit an optional cap (5 MB by default). GIF output loops and has no audio.
-- Images: native Sharp/libvips handles JPEG, PNG, WebP, AVIF, TIFF, SVG, and other formats supported by the installed decoder. HEIC/RAW/BMP are not universally supported; unsupported images produce individual errors. Animated and multipage files are skipped instead of losing frames. AVIF/WebP/JPEG or palette PNG output. Corrects EXIF orientation, removes metadata, preserves aspect ratio and avoids upscaling. JPEG transparency is flattened on white. Conversion is not guaranteed to reduce size; original bytes are kept when compatible with requested format and width and smaller.
-- Batch: up to 200 files, 1 GB per file. Folder selection via browser folder picker. Unique numbered filenames prevent collisions; ZIP outputs are flattened. Individual downloads are also available.
+- Images: browser-local decoding and OffscreenCanvas encoding for WebP/JPEG/lossless PNG; a lazy-loaded, single-threaded jSquash/libavif WebAssembly encoder produces AVIF. Uses browser EXIF orientation and removes source metadata, preserves aspect ratio and avoids upscaling. SVG is rasterized locally. JPEG transparency is flattened on white. PNG ignores the quality slider. Input support depends on browser decoders: TIFF, HEIC and RAW are not supported; GIF and animated PNG/WebP/AVIF are skipped to avoid losing frames. Unsupported files produce individual warnings while the rest of the batch continues. Conversion may increase file size.
+- Batch: up to 200 files. Browser batches are capped at 300 MB input/output and decoded images at 40 megapixels. Video/GIF uploads remain capped at 1 GB per file. Folder selection via browser folder picker. Unique numbered filenames prevent collisions; ZIP outputs are flattened. Individual downloads and ZIPs are browser-generated for PDFs/images.
 
 ## Limits and privacy
 
-This is a local application, not a multi-user internet service. Do not expose the server publicly without authentication, TLS, quotas, process isolation and a hardened media sandbox. Files are processed on the computer running Node, never uploaded to a third-party conversion service. Twitter fetching contacts X through yt-dlp. Google Fonts is optional; system fallback fonts work offline.
+PDF and image files never leave the browser. Video/GIF files are uploaded to the configured processing server. Do not expose the processing server publicly without appropriate authentication, TLS, quotas and process isolation. Twitter fetching contacts X through yt-dlp. Google Fonts is optional; system fallback fonts work offline.
 
-Jobs run sequentially to avoid simultaneous encoders exhausting memory. Job IDs are random UUIDs. Files expire one hour after completion/cancellation. Cancellation kills the active subprocess; a current PDF/Sharp operation may finish before cancellation is acknowledged. Processing has a 30-minute subprocess timeout, and images have a 100-megapixel decode limit. Large PDFs/batches still require enough available RAM/disk. Do not feed untrusted media to an outdated processing stack.
+Browser jobs run in a worker so the UI stays responsive. Cancel immediately terminates the worker, including PDF, AVIF and ZIP work. Browser download URLs are revoked when selecting a tool, adding a batch, rerunning, cancelling or closing the workbench. Reloading the page loses local results. Files and output archives still require sufficient device memory; start with smaller batches on phones. Asset downloads (worker code, PDF library, AVIF WASM) are normal static requests, not file uploads.
+
+Server jobs run sequentially. Job IDs are random UUIDs. Server files expire one hour after completion/cancellation and processing has a 30-minute subprocess timeout. Backend PDF/image API endpoints are retained for compatibility but are never used by the frontend.
 
 Results are temporary. Restarting the server clears job tracking; temporary directories left by a crash may remain in the OS temp folder. Browser reload loses the visible job state. Progress reflects processing stages, not an exact ETA.
 
@@ -57,7 +59,9 @@ Technology references: https://www.ffmpeg.org/ffmpeg-all.html and https://sharp.
 
 Run `npm run test:smoke` while the server is running. `node tests/browser.mjs` runs desktop/mobile UI checks with Microsoft Edge on Windows and writes screenshots to `artifacts/`.
 
-This project uses native media subprocesses and requires a Node host that supports them. It cannot run as a static-only site or in a Cloudflare Worker without a separate media processing service.
+The built dist directory can be served by a static host: PDFs and images work without any backend. Video/GIF tools still require the native Node processing server at the same origin's /api routes. When serving the entire app through one Render Web Service, the initial page and asset load can still wake that service. Independent static hosting (and a same-origin /api proxy) is required to avoid that initial cold start for the whole site.
+
+Run `npm run build` then `npm run test:browser-local` to test PDFs, image codecs and ZIP contents on a static-only server with all /api requests blocked. The test checks desktop and mobile layouts and verifies zero backend requests. Set BROWSER_PATH to a Chromium executable if Microsoft Edge is not installed at its default Windows path.
 
 ## Render deployment
 
